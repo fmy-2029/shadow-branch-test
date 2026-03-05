@@ -1,7 +1,6 @@
-name: Create Shadow Branch
+name: Create Clean Branch
 on:
   push:
-    # 作業ブランチ（feature/～）にPushされた時だけ発動する
     branches:
       - 'feature/**'
 jobs:
@@ -9,7 +8,7 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: write
-      pull-requests: write # PRを自動作成するための権限
+      # pull-requests: write はもう不要なので削除！
     steps:
       - uses: actions/checkout@v4
         with:
@@ -20,7 +19,6 @@ jobs:
         run: |
           ORIGIN_BRANCH=${GITHUB_REF#refs/heads/}
           CLEAN_BRANCH=${ORIGIN_BRANCH/feature\//clean\/}
-          echo "ORIGIN_BRANCH=$ORIGIN_BRANCH" >> $GITHUB_ENV
           echo "CLEAN_BRANCH=$CLEAN_BRANCH" >> $GITHUB_ENV
 
       - name: クローン作成 ＆ ゴミ削除 ＆ Push
@@ -28,33 +26,15 @@ jobs:
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
           
-          # 1. クリーン用の新しいブランチを作成
+          # クリーン用の新しいブランチを作成して移動
           git checkout -b ${{ env.CLEAN_BRANCH }}
           
-          # 2. お掃除
+          # お掃除
           find docs/99_見積書 -type f ! -name ".gitkeep" -exec rm -f {} +
           git add .
           
-          # 3. 変更があればコミット
+          # コミットとPush
           if ! git diff --staged --quiet; then
-            git commit -m "chore: 🧹 ボットが自動生成したクリーンなシャドウブランチ"
+            git commit -m "chore: 🧹 ボットが自動生成したクリーンなブランチ"
           fi
-          
-          # 4. リモートへ強制Push（作業ブランチが更新されるたびに上書き）
           git push -f origin ${{ env.CLEAN_BRANCH }}
-
-      - name: 自動でPull Requestを作成
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          # すでにPRが存在するかチェック
-          PR_EXISTS=$(gh pr list --head ${{ env.CLEAN_BRANCH }} --base main --json number --jq length)
-          
-          # PRがなければ新規作成する
-          if [ "$PR_EXISTS" -eq "0" ]; then
-            gh pr create \
-              --head ${{ env.CLEAN_BRANCH }} \
-              --base main \
-              --title "🚀 [自動生成] ${{ env.ORIGIN_BRANCH }} のマージPR" \
-              --body "ボットが自動生成した、ドキュメントを除外したクリーンなブランチです。このPRをレビュー・マージしてください。"
-          fi
