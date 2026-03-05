@@ -1,0 +1,60 @@
+name: Create Shadow Branch
+on:
+  push:
+    # 作業ブランチ（feature/～）にPushされた時だけ発動する
+    branches:
+      - 'feature/**'
+jobs:
+  generate-clean-clone:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: write # PRを自動作成するための権限
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: ブランチ名の変換（feature/ → clean/）
+        id: branch_name
+        run: |
+          ORIGIN_BRANCH=${GITHUB_REF#refs/heads/}
+          CLEAN_BRANCH=${ORIGIN_BRANCH/feature\//clean\/}
+          echo "ORIGIN_BRANCH=$ORIGIN_BRANCH" >> $GITHUB_ENV
+          echo "CLEAN_BRANCH=$CLEAN_BRANCH" >> $GITHUB_ENV
+
+      - name: クローン作成 ＆ ゴミ削除 ＆ Push
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          
+          # 1. クリーン用の新しいブランチを作成
+          git checkout -b ${{ env.CLEAN_BRANCH }}
+          
+          # 2. お掃除
+          find docs/99_見積書 -type f ! -name ".gitkeep" -exec rm -f {} +
+          git add .
+          
+          # 3. 変更があればコミット
+          if ! git diff --staged --quiet; then
+            git commit -m "chore: 🧹 ボットが自動生成したクリーンなシャドウブランチ"
+          fi
+          
+          # 4. リモートへ強制Push（作業ブランチが更新されるたびに上書き）
+          git push -f origin ${{ env.CLEAN_BRANCH }}
+
+      - name: 自動でPull Requestを作成
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          # すでにPRが存在するかチェック
+          PR_EXISTS=$(gh pr list --head ${{ env.CLEAN_BRANCH }} --base main --json number --jq length)
+          
+          # PRがなければ新規作成する
+          if [ "$PR_EXISTS" -eq "0" ]; then
+            gh pr create \
+              --head ${{ env.CLEAN_BRANCH }} \
+              --base main \
+              --title "🚀 [自動生成] ${{ env.ORIGIN_BRANCH }} のマージPR" \
+              --body "ボットが自動生成した、ドキュメントを除外したクリーンなブランチです。このPRをレビュー・マージしてください。"
+          fi
