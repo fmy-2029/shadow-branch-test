@@ -1,0 +1,46 @@
+name: Generate Clean Shadow Branch
+
+on:
+  push:
+    branches:
+      - 'feature/**' 
+
+jobs:
+  update-shadow-branch:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write 
+
+    steps:
+      - name: Checkout working branch
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0 
+
+      - name: Set up Git configuration
+        run: |
+          git config --global user.name "github-actions[bot]"
+          git config --global user.email "github-actions[bot]@users.noreply.github.com"
+
+      - name: Create or Force-update shadow branch
+        run: |
+          WORK_BRANCH=${GITHUB_REF#refs/heads/}
+          SHADOW_BRANCH="clean/${WORK_BRANCH}"
+          
+          echo "Working branch: $WORK_BRANCH"
+          echo "Target shadow branch: $SHADOW_BRANCH"
+
+          # シャドウブランチを作成 or 強制リセット
+          git checkout -B "$SHADOW_BRANCH" "origin/$WORK_BRANCH"
+
+          # 見積書フォルダを削除（無ければスキップ）
+          git rm -r --ignore-unmatch docs/99_見積書/ || true
+
+          if ! git diff --staged --quiet; then
+            git commit -m "chore: remove sensitive docs for AI safety [skip ci]"
+            # 強制上書きPush
+            git push --force origin "$SHADOW_BRANCH"
+            echo "✅ シャドウブランチ ($SHADOW_BRANCH) を最新状態に上書き更新しました。"
+          else
+            echo "ℹ️ 削除対象のファイルが存在しないためスキップしました。"
+          fi
